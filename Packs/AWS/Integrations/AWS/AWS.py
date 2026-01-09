@@ -2,7 +2,8 @@ import demistomock as demisto  # noqa: F401
 from COOCApiModule import *  # noqa: E402
 from CommonServerPython import *  # noqa: F401
 from http import HTTPStatus
-from datetime import date, datetime, timedelta, UTC
+# from datetime import date, datetime, timedelta, UTC
+from datetime import date, datetime, timedelta
 from collections.abc import Callable
 from botocore.client import BaseClient as BotoClient
 from botocore.config import Config
@@ -2686,11 +2687,7 @@ class EC2:
             raise DemistoException("image_id parameter is required")
 
         print_debug_logs(client, f"Deregistering image: {image_id}")
-
-        try:
-            response = client.deregister_image(ImageId=image_id)
-        except ClientError as e:
-            AWSErrorHandler.handle_client_error(e, args.get("account_id"))
+        response = client.deregister_image(ImageId=image_id)
 
         if response.get("ResponseMetadata", {}).get("HTTPStatusCode") != HTTPStatus.OK:
             AWSErrorHandler.handle_response_error(response, args.get("account_id"))
@@ -2712,7 +2709,7 @@ class EC2:
                 - source_image_id (str): ID of the AMI to copy (required)
                 - source_region (str): Region that contains the AMI to copy (required)
                 - description (str, optional): Description for the new AMI
-                - encrypted (str, optional): Whether destination snapshots should be encrypted
+                - encrypted (boolean, optional): Whether destination snapshots should be encrypted
                 - kms_key_id (str, optional): KMS key ID for encryption
                 - client_token (str, optional): Idempotency token
 
@@ -2720,16 +2717,9 @@ class EC2:
             CommandResults: Results containing the new ImageId and Region
         """
         # Validate required parameters
-        name = args.get("name", "").strip()
-        source_image_id = args.get("source_image_id", "").strip()
-        source_region = args.get("source_region", "").strip()
-
-        if not name:
-            raise DemistoException("name parameter is required")
-        if not source_image_id:
-            raise DemistoException("source_image_id parameter is required")
-        if not source_region:
-            raise DemistoException("source_region parameter is required")
+        name = args.get("name", "")
+        source_image_id = args.get("source_image_id", "")
+        source_region = args.get("source_region", "")
 
         print_debug_logs(client, f"Copying image {source_image_id} from region {source_region}")
 
@@ -2739,27 +2729,18 @@ class EC2:
             "SourceImageId": source_image_id,
             "SourceRegion": source_region,
             "Description": args.get("description"),
-            "Encrypted": argToBoolean(args.get("encrypted")) if args.get("encrypted") else None,
+            "Encrypted": arg_to_bool_or_none(args.get("encrypted")),
             "KmsKeyId": args.get("kms_key_id"),
             "ClientToken": args.get("client_token"),
         }
 
         # Remove None values
         remove_nulls_from_dictionary(kwargs)
+        response = client.copy_image(**kwargs)
 
-        try:
-            response = client.copy_image(**kwargs)
-        except ClientError as e:
-            AWSErrorHandler.handle_client_error(e, args.get("account_id"))
-
-        # Validate response
         if response.get("ResponseMetadata", {}).get("HTTPStatusCode") != HTTPStatus.OK:
             AWSErrorHandler.handle_response_error(response, args.get("account_id"))
 
-        if "ImageId" not in response:
-            AWSErrorHandler.handle_response_error(response, args.get("account_id"))
-
-        # Get region from args
         region = args.get("region", "")
 
         # Prepare outputs
@@ -2854,6 +2835,7 @@ class EC2:
             )
         except ClientError as e:
             AWSErrorHandler.handle_client_error(e, args.get("account_id"))
+
 
 class EKS:
     service = AWSServices.EKS
