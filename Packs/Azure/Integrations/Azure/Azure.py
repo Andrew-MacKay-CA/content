@@ -16,6 +16,8 @@ urllib3.disable_warnings()
 
 """ CONSTANTS """
 
+BLOB_SERVICE_PREFIX = "blob.core.windows.net"
+
 DEFAULT_LIMIT = "50"
 DATE_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 STORAGE_DATE_FORMAT = "%a, %d %b %Y %H:%M:%S GMT"
@@ -41,6 +43,8 @@ PERMISSIONS_TO_COMMANDS = {
     "Microsoft.Network/networkSecurityGroups/securityRules/read": [
         "azure-nsg-security-rule-update",
         "azure-nsg-security-rule-create",
+        "azure-nsg-security-rule-update-quick-action",
+        "azure-nsg-security-rules-list"
     ],
     "Microsoft.Network/networkSecurityGroups/securityRules/write": [
         "azure-nsg-security-rule-update",
@@ -97,7 +101,7 @@ PERMISSIONS_TO_COMMANDS = {
     ],
     "Microsoft.DBforPostgreSQL/servers/configurations/read": [
         "azure-postgres-config-set",
-        "azure-postgres-config-set-disconnection-logging-quick-action"
+        "azure-postgres-config-set-disconnection-logging-quick-action",
         "azure-postgres-config-set-checkpoint-logging-quick-action",
         "azure-postgres-config-set-connection-throttling-quick-action",
         "azure-postgres-config-set-session-connection-logging-quick-action",
@@ -106,7 +110,7 @@ PERMISSIONS_TO_COMMANDS = {
     ],
     "Microsoft.DBforPostgreSQL/servers/configurations/write": [
         "azure-postgres-config-set",
-        "azure-postgres-config-set-disconnection-logging-quick-action"
+        "azure-postgres-config-set-disconnection-logging-quick-action",
         "azure-postgres-config-set-checkpoint-logging-quick-action",
         "azure-postgres-config-set-connection-throttling-quick-action",
         "azure-postgres-config-set-session-connection-logging-quick-action",
@@ -248,6 +252,7 @@ API_FUNCTION_TO_PERMISSIONS = {
     "get_network_interface_request": ["Microsoft.Network/networkInterfaces/read"],
     "get_public_ip_details_request": ["Microsoft.Network/publicIPAddresses/read"],
     "get_all_public_ip_details_request": ["Microsoft.Network/publicIPAddresses/read"],
+    "list_security_rules": ["Microsoft.Network/networkSecurityGroups/securityRules/read"]
 }
 
 REQUIRED_ROLE_PERMISSIONS = [
@@ -320,6 +325,7 @@ SQL_DB_API_VERSION = "2021-11-01"
 COSMOS_DB_API_VERSION = "2024-11-15"
 PERMISSIONS_VERSION = "2022-04-01"
 VM_API_VERSION = "2023-03-01"
+NSG_API_VERSION = "2025-01-01"
 
 
 class TokenScope:
@@ -559,6 +565,37 @@ class AzureClient:
                 resource_name=f"{security_group}/{rule_name}",
                 resource_type="Security Rule",
                 api_function_name="get_rule",
+                subscription_id=subscription_id,
+                resource_group_name=resource_group_name,
+            )
+
+    def list_security_rules(self, subscription_id: str, resource_group_name: str, network_security_group_name: str):
+        """
+        Gets all security rules in a network security group.
+
+        Args:
+            subscription_id(str) : Azure subscription ID
+            resource_group_name(str) : Resource group name
+            network_security_group_name(str): The name of the network security group
+
+        Returns:
+            A list of dictionary containing the security rules information
+
+        Raises:
+            DemistoException: If there are permission or other API errors
+        """
+        try:
+            demisto.debug("Retrieving security rules list.")
+            return self.http_request(
+                "GET",
+                full_url=f"{PREFIX_URL_AZURE}{subscription_id}/resourceGroups/{resource_group_name}/providers/Microsoft.Network/networkSecurityGroups/{network_security_group_name}/securityRules?{NSG_API_VERSION}",
+            )
+        except Exception as e:
+            self.handle_azure_error(
+                e=e,
+                resource_name=f"{network_security_group_name}/security-rules-list",
+                resource_type="Security Rules",
+                api_function_name="list_security_rules",
                 subscription_id=subscription_id,
                 resource_group_name=resource_group_name,
             )
@@ -807,6 +844,7 @@ class AzureClient:
         Retrieve properties for the specified Container.
 
         Args:
+            account_name (str): The storage account name.
             container_name (str): Container name.
 
         Returns:
@@ -814,7 +852,7 @@ class AzureClient:
 
         """
         params = assign_params(restype="container")
-        full_url = f"https://{account_name}.blob.core.windows.net/{container_name}"
+        full_url = f"https://{account_name}.{BLOB_SERVICE_PREFIX}/{container_name}"
         self.storage_container_set_headers()
 
         response = self.http_request(method="GET", full_url=full_url, params=params, resp_type="response")
@@ -834,7 +872,7 @@ class AzureClient:
 
         """
         params = assign_params(restype="container")
-        full_url = f"https://{account_name}.blob.core.windows.net/{container_name}"
+        full_url = f"https://{account_name}.{BLOB_SERVICE_PREFIX}/{container_name}"
         self.storage_container_set_headers()
 
         response = self.http_request(method="PUT", full_url=full_url, params=params, resp_type="response")
@@ -854,7 +892,7 @@ class AzureClient:
 
         """
         params = assign_params(restype="container")
-        full_url = f"https://{account_name}.blob.core.windows.net/{container_name}"
+        full_url = f"https://{account_name}.{BLOB_SERVICE_PREFIX}/{container_name}"
         self.storage_container_set_headers()
 
         self.http_request(method="DELETE", full_url=full_url, params=params, resp_type="response")
@@ -867,15 +905,17 @@ class AzureClient:
 
         Args:
             container_name (str): Container name.
+            account_name (str): Storage account name.
             file_entry_id (str): File War room Entry ID.
-            file_name (str): File name. Default is file name.
+            blob_name (str): File name.
+            system_file_path (str): File system path.
 
         Returns:
             Response: API response from Azure.
 
         """
 
-        full_url = f"https://{account_name}.blob.core.windows.net/{container_name}/{blob_name}"
+        full_url = f"https://{account_name}.{BLOB_SERVICE_PREFIX}/{container_name}/{blob_name}"
 
         try:
             with open(system_file_path, "rb") as file_data:
@@ -902,7 +942,7 @@ class AzureClient:
         Returns:
             dict: The JSON response from the Azure API.
         """
-        full_url = f"https://{account_name}.blob.core.windows.net/{container_name}/{blob_name}"
+        full_url = f"https://{account_name}.{BLOB_SERVICE_PREFIX}/{container_name}/{blob_name}"
         self.storage_container_set_headers()
 
         response = self.http_request(method="GET", full_url=full_url, resp_type="response")
@@ -921,7 +961,7 @@ class AzureClient:
         Returns:
             dict: The JSON response from the Azure API.
         """
-        full_url = f"https://{account_name}.blob.core.windows.net/{container_name}/{blob_name}"
+        full_url = f"https://{account_name}.{BLOB_SERVICE_PREFIX}/{container_name}/{blob_name}"
         params = assign_params(comp="tags")
         self.storage_container_set_headers()
         response = self.http_request(method="GET", full_url=full_url, params=params, resp_type="text")
@@ -945,7 +985,7 @@ class AzureClient:
         Returns:
             dict: The JSON response from the Azure API.
         """
-        full_url = f"https://{account_name}.blob.core.windows.net/{container_name}/{blob_name}"
+        full_url = f"https://{account_name}.{BLOB_SERVICE_PREFIX}/{container_name}/{blob_name}"
         params = assign_params(comp="tags")
         headers = {
             "Content-Type": "application/xml; charset=utf-8",
@@ -972,7 +1012,7 @@ class AzureClient:
             Response: API response from Azure.
 
         """
-        full_url = f"https://{account_name}.blob.core.windows.net/{container_name}/{blob_name}"
+        full_url = f"https://{account_name}.{BLOB_SERVICE_PREFIX}/{container_name}/{blob_name}"
         self.storage_container_set_headers()
 
         response = self.http_request(method="HEAD", full_url=full_url, resp_type="response")
@@ -988,13 +1028,14 @@ class AzureClient:
         Args:
             container_name (str): Container name.
             blob_name (str): Blob name.
+            account_name (str): Name of the storage account.
             headers (dict): Request Headers.
 
         Returns:
             Response: API response from Azure.
 
         """
-        full_url = f"https://{account_name}.blob.core.windows.net/{container_name}/{blob_name}"
+        full_url = f"https://{account_name}.{BLOB_SERVICE_PREFIX}/{container_name}/{blob_name}"
         params = assign_params(comp="properties")
         self.storage_container_set_headers(custom_headers=headers)
 
@@ -1015,7 +1056,7 @@ class AzureClient:
             Response: API response from Azure.
 
         """
-        full_url = f"https://{account_name}.blob.core.windows.net/{container_name}"
+        full_url = f"https://{account_name}.{BLOB_SERVICE_PREFIX}/{container_name}"
         params = assign_params(restype="container", comp="acl")
         self.storage_container_set_headers()
 
@@ -1039,7 +1080,7 @@ class AzureClient:
             dict: The full response from the Azure policy assignment creation API.
         """
         # subscription_id is required as argument for token creation.
-        full_url = f"https://management.azure.com{scope}/providers/Microsoft.Authorization/policyAssignments/{name}"
+        full_url = f"{DEFAULT_RESOURCE}{scope}/providers/Microsoft.Authorization/policyAssignments/{name}"
         params = {"api-version": POLICY_ASSIGNMENT_API_VERSION}
         data = {
             "properties": {
@@ -2862,7 +2903,7 @@ def storage_container_blob_create_command(client: AzureClient, params: dict, arg
     system_file_path = file_data["path"]
     file_name = blob_name if blob_name else file_data["name"]
 
-    client.storage_container_create_blob_request(container_name, account_name, file_entry_id, file_name, system_file_path)
+    client.storage_container_create_blob_request(container_name, account_name, file_entry_id, file_name, system_file_path)  # noqa: E501
 
     command_results = CommandResults(readable_output=f"Blob {file_name} successfully created.")
 
@@ -2886,7 +2927,6 @@ def storage_container_blob_get_command(client: AzureClient, params: dict, args: 
     account_name = args.get("account_name", "")
 
     response = client.storage_container_blob_get_request(container_name, blob_name, account_name)
-
     if hasattr(response, "content"):
         return fileResult(filename=blob_name, data=response.content)  # type: ignore[attr-defined]
     else:
@@ -3755,6 +3795,49 @@ def nsg_security_rule_get_command(client: AzureClient, params: dict[str, Any], a
     )
 
     return CommandResults(outputs_prefix="Azure.NSGRule", outputs_key_field="id", outputs=rule, readable_output=hr)
+
+
+def nsg_security_rules_list_command(client: AzureClient, params: dict[str, Any], args: dict[str, Any]) -> CommandResults:
+    """
+    Gets all security rules in a network security group.
+    Args:
+        client: The AzureClient
+        params: configuration parameters
+        args: args dictionary (subscription_id, resource_group_name, network_security_group_name).
+    Returns:
+        CommandResults: The list of security rules.
+    """
+    subscription_id = get_from_args_or_params(params=params, args=args, key="subscription_id")
+    resource_group_name = get_from_args_or_params(params=params, args=args, key="resource_group_name")
+    network_security_group_name = args.get("network_security_group_name", "")
+
+    if not resource_group_name and not network_security_group_name:
+        return_error("Please provide security_group_name and security_rule_name.")
+
+    response = client.list_security_rules(subscription_id, resource_group_name, network_security_group_name)
+    security_rules = response.get("value", [])
+    demisto.debug(f"{security_rules=}")
+    hr_data = []
+    for rule in security_rules:
+        hr_data.append({
+            "name": rule.get("name"),
+            "id": rule.get("id"),
+            "direction": rule.get("properties", {}).get("direction"),
+        })
+
+    hr = tableToMarkdown(
+        name="Security Groups list",
+        t=hr_data,
+        removeNull=True,
+        headers=["name", "id", "direction"],
+        headerTransform=pascalToSpace,
+    )
+
+    outputs = {
+        "Azure.NSGRule(val.id && val.id == obj.id)": security_rules
+    }
+
+    return CommandResults(outputs=outputs, readable_output=hr, raw_response=security_rules)
 
 
 def nsg_security_rule_create_command(client: AzureClient, params: dict[str, Any], args: dict[str, Any]) -> CommandResults:
@@ -4655,14 +4738,13 @@ def get_azure_client(params: dict, args: dict, command: str):
         credentials = get_cloud_credentials(
             CloudTypes.AZURE.value,
             get_from_args_or_params(params=params, args=args, key="subscription_id"),
-            scopes=token_scopes,  # noqa: E501
+            scopes=token_scopes,
         )
         token = credentials.get("access_token")
         if not token:
             raise DemistoException("Failed to retrieve AZURE access token - token is missing from credentials")
         headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json", "Accept": "application/json"}
         demisto.debug("Using CTS.")
-
     client = AzureClient(
         app_id=params.get("app_id", ""),
         subscription_id=params.get("subscription_id", ""),
@@ -4692,10 +4774,31 @@ def get_command_resource(command: str) -> str:
     return DEFAULT_RESOURCE
 
 
+def switch_to_gov_account() -> None:
+    global BLOB_SERVICE_PREFIX
+    global SCOPE_BY_CONNECTION
+    global DEFAULT_SCOPE
+    global DEFAULT_RESOURCE
+    global PREFIX_URL_AZURE
+    global PREFIX_URL_MS_GRAPH
+
+    BLOB_SERVICE_PREFIX = "blob.core.usgovcloudapi.net"
+    SCOPE_BY_CONNECTION = {
+        "Device Code": "https://management.usgovcloudapi.net/user_impersonation offline_access user.read",
+        "Authorization Code": "https://management.usgovcloudapi.net/.default",
+        "Client Credentials": "https://management.usgovcloudapi.net/.default",
+    }
+    DEFAULT_SCOPE = "https://management.usgovcloudapi.net/.default"
+    DEFAULT_RESOURCE = "https://management.usgovcloudapi.net/"
+    PREFIX_URL_AZURE = "https://management.usgovcloudapi.net/subscriptions/"
+    PREFIX_URL_MS_GRAPH = "https://graph.microsoft.us/v1.0"
+
+
 def main():  # pragma: no cover
     params = demisto.params()
     command = demisto.command()
     args = demisto.args()
+
     demisto.debug(f"Command being called is {command}")
     connector_id = get_connector_id()
     demisto.debug(f"{connector_id=}")
@@ -4736,6 +4839,7 @@ def main():  # pragma: no cover
             "azure-cosmos-db-update": cosmosdb_update_command,
             "azure-nsg-security-groups-list": nsg_security_groups_list_command,
             "azure-nsg-security-rule-get": nsg_security_rule_get_command,
+            "azure-nsg-security-rules-list": nsg_security_rules_list_command,
             "azure-nsg-security-rule-create": nsg_security_rule_create_command,
             "azure-nsg-security-rule-delete": nsg_security_rule_delete_command,
             "azure-nsg-resource-group-list": nsg_resource_group_list_command,
@@ -4778,9 +4882,14 @@ def main():  # pragma: no cover
             "azure-postgres-server-update-ssl-enforcement-quick-action": postgres_server_update_command,
         }
         if command == "test-module" and connector_id:
+            if is_gov_account(connector_id):  # type: ignore
+                switch_to_gov_account()
             demisto.debug(f"Running health check for connector ID: {connector_id}")
             return return_results(run_health_check_for_accounts(connector_id, CloudTypes.AZURE.value, health_check))
 
+        account_id = get_from_args_or_params(params=params, args=args, key="subscription_id")
+        if is_gov_account(connector_id, account_id):  # type: ignore
+            switch_to_gov_account()
         client = get_azure_client(params, args, command)
         if command == "test-module":
             return_results(test_module(client))
