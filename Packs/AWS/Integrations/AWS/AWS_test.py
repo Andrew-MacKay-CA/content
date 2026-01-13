@@ -7354,8 +7354,6 @@ def test_bucket_create_command_failure(mocker):
     mock_handle_error.assert_called_once()
 
 
-
-
 def test_ec2_describe_images_command_success(mocker):
     """
     Given: A mocked boto3 EC2 client and valid image description arguments.

@@ -2843,6 +2843,7 @@ class EC2:
         else:
             return AWSErrorHandler.handle_response_error(response)
 
+
     @staticmethod
     def describe_images_command(client: BotoClient, args: Dict[str, Any]) -> CommandResults:
         """
@@ -2857,10 +2858,13 @@ class EC2:
                 - executable_users (str, optional): Comma-separated list of users with explicit launch permissions
                 - include_deprecated (str, optional): Whether to include deprecated AMIs
                 - include_disabled (str, optional): Whether to include disabled AMIs
+                - limit (int, optional): Maximum number of AMIs to return
+                - next_token (str, optional): The token for the next set of AMIs to return.
 
         Returns:
             CommandResults: Results containing AMI information
         """
+
         kwargs = {}
 
         # Add filters if provided
@@ -2886,6 +2890,12 @@ class EC2:
         # Add include_disabled if provided
         if include_disabled := args.get("include_disabled"):
             kwargs["IncludeDisabled"] = argToBoolean(include_disabled)
+
+        if limit := args.get("limit"):
+            kwargs["MaxResults"] = arg_to_number(limit)
+
+        if next_token := args.get("next_token"):
+            kwargs["NextToken"] = next_token
 
         print_debug_logs(client, f"Describing images with parameters: {kwargs}")
         remove_nulls_from_dictionary(kwargs)
@@ -2917,17 +2927,22 @@ class EC2:
             readable_data = remove_empty_elements(readable_data)
             readable_outputs.append(readable_data)
 
+        outputs = {
+            "AWS.EC2.Images(val.ImageId && val.ImageId == obj.ImageId)": images,
+            "AWS.EC2(true)": {
+                "ImagesNextPageToken": response.get("NextToken"),
+            }
+        }
+
         return CommandResults(
-            outputs_prefix="AWS.EC2.Images",
-            outputs_key_field="ImageId",
-            outputs=images,
+            outputs=outputs,
             readable_output=tableToMarkdown(
                 "AWS EC2 Images",
                 readable_outputs,
                 headers=["ImageId", "Name", "CreationDate", "State", "Public", "Description"],
                 removeNull=True,
                 headerTransform=pascalToSpace,
-            ),
+            ) + f"\nImagesNextPageToken: {response.get('NextToken')}\n",
             raw_response=response,
         )
 
@@ -3108,6 +3123,12 @@ class EC2:
         )
 
     @staticmethod
+    @polling_function(
+        name="aws-ec2-image-available-waiter",
+        interval=15,
+        timeout=DEFAULT_TIMEOUT,
+        requires_polling_arg=False,  # means it will always be default to poll, poll=true,
+    )
     def image_available_waiter_command(client: BotoClient, args: Dict[str, Any]) -> CommandResults:
         """
         Waits until an Amazon Machine Image (AMI) becomes available.
