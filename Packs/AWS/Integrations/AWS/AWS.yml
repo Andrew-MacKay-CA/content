@@ -5793,7 +5793,7 @@ script:
         type: string
 
   - name: aws-ec2-image-available-waiter
-    description: Waits until an AMI is in the 'available' state. This command polls the AMI status until it becomes available or the maximum wait time is reached.
+    description: Waits until an AMI is in the 'available' state. This command polls the AMI status until it becomes available or the maximum wait time is reached. If no specific Image ID is provided, the waiter will poll all AMIs associated with the account. Note that if any single image in that set enters a 'failed' state, the waiter will trigger a terminal failure and stop polling entirely.
     arguments:
       - name: account_id
         description: The AWS account ID.
